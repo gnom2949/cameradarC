@@ -7,10 +7,11 @@ add_project_arguments('-D_GNU_SOURCE', language: 'c')
 #deps
 curl = dependency ('libcurl')
 thread = dependency ('threads')
+json = dependency ('json-c')
 
 sources = ['main.c']
 
 executable ('cam',
 	sources,
-	dependencies : [curl, thread],
+	dependencies : [curl, thread, json],
 	install : true)
