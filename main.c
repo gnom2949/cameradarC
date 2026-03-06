@@ -30,7 +30,7 @@ void bsfEncode (const char* input, char* output)
 {
   const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   int i = 0, j = 0;
-  int len = strnlen (input, (sizeof input));
+  int len = strlen (input);
   unsigned char tmp[3];
   
   while (len--) {
