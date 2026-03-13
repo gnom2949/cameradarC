@@ -1,136 +1,15 @@
 /* main.c
  * The main of Cameradar on C
- * No license
+ * SPDX-License-Identifier: GNU General Public License v3
  */
 
 #include "cam.h"
-
-static size_t WrMemCallback(void *contents, size_t size, size_t nmemb, void *userp)
-{
-    if (!contents || !userp) return 0;
-    struct MemBuf *mem = userp;
-    if (nmemb != 0 && size > SIZE_MAX / nmemb) return 0;
-
-    size_t realsize = size * nmemb;
-
-    if (mem->size > SIZE_MAX - realsize - 1) return 0;
-    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
-    if (!ptr) return 0;
-
-    mem->memory = ptr;
-
-    memcpy(mem->memory + mem->size, contents, realsize);
-    mem->size += realsize;
-    mem->memory[mem->size] = '\0';
-
-    return realsize;
-}
-
-void bsfEncode (const char* input, char* output)
-{
-  const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  int i = 0, j = 0;
-  int len = strlen (input);
-  unsigned char tmp[3];
-  
-  while (len--) {
-    tmp[i++] = *(input++);
-    if (i == 3) {
-      output[j++] = table[tmp[0] >> 2];
-      output[j++] = table[((tmp[0] & 0x03) << 4) | (tmp[1] >> 4)];
-      output[j++] = table[((tmp[1] & 0x0f) << 2) | (tmp[2] >> 6)];
-      output[j++] = table[tmp[2] & 0x03f];
-      i = 0;
-    }
-  }
-  
-  if (i) {
-    output[j++] = table[tmp[0] >> 2];
-    if (i == 1) {
-      output[j++] = table[(tmp[0]  & 0x03) << 4];
-      output[j++] = '=';    
-    } else {
-      output[j++] = table[((tmp[0] & 0x03) << 4) | (tmp[1] >> 4)];
-      output[j++] = table[(tmp[1] & 0x0f) << 2];
-    }
-    output[j++] = '=';
-  }
-  output[j] = '\0';
-}
-
-bool bruteforce (radarType* target)
-{
-  pthread_t anim_tid;
-  atomic_store (&globA.active, true);
-  FILE *fLog = fopen ("brute/logins.txt", "r");
-  FILE *fPass = fopen ("brute/passwords.txt", "r");
-  pthread_create (&anim_tid, NULL, scanim, &globA);
-  
-  if (!fLog || !fPass) {
-    fprintf (stderr, COL_RED "\n[ERROR] Keywords not found in brute dir!!\n" COL_DEF);
-    if (fLog) fclose (fLog); if (fPass) fclose (fPass);
-    return false;
-  }
-  
-  char login[128], pass[128];
-  char rawAu[128], bsfAu[256];
-  char req[1024], resp[1024];
-  char *ip = inet_ntoa (*(struct in_addr*)&target->ipAddr);
-  
-  for (int p = 0; p < 5; p++) {
-    rewind (fLog);
-    while (fgets (login, sizeof (login), fLog)) {
-      login[strcspn (login, "\r\n")] = 0;
-      
-      rewind (fPass);
-      while (fgets (pass, sizeof (pass), fPass)) {
-        pass[strcspn (pass, "\r\n")] = 0;
-        
-        int fd = spawnSock (target);
-        if (fd < 0) usleep (500000); continue;
-        
-        // prepare a header in base64
-        snprintf (rawAu, sizeof (rawAu), "%s:%s", login, pass);
-        bsfEncode (rawAu, bsfAu);
-        
-        // describe
-        snprintf (req, sizeof (req),
-                  "DESCRIBE rtsp://%s:%d%s RTSP/1.0\r\n"
-                  "CSeq: 1\r\n"
-                  "Authorization: Basic %s\r\n"
-                  "User-Agent: SatWatcher/1.0\r\n\r\n",
-                  ip, target->port, rtspPath[p], bsfAu);
-        
-        send (fd, req, strnlen (req, sizeof req), 0);
-        
-        memset (resp, 0, sizeof (resp));
-        int received = recv (fd, resp, sizeof(resp) - 1, 0);
-        close (fd);
-        
-        if (received > 0) {
-          if (strstr (resp, "RTSP/1.0 200")) {
-            printf (COL_GRN "\n[SUCCESS] %s:%d%s -> %s:%s\n" COL_DEF, ip, target->port, rtspPath[p], login, pass);
-            FILE *res = fopen ("found.txt", "a");
-            fprintf (res, "rtsp://%s:%s@%s:%d%s\n", login, pass, ip, target->port, rtspPath[p]);
-            fclose (res);
-            
-            fclose (fLog); fclose (fPass);
-            return true;
-          }
-        }
-        printf (globA.msg, 256, COL_BLU "\r[INFO] Brute %s:%s on %s, please wait." COL_DEF, login, pass, rtspPath[p]);
-        fflush (stdout);
-        
-        usleep (100000);
-      }
-    }
-  } 
-  atomic_store (&globA.active, false);
-  pthread_join (anim_tid, NULL);
-  fclose(fLog);
-  fclose(fPass);
-  return false;
-}
+bool ambiguous_include = false;
+bool use_nmap = false;
+const char *nmap_xml_file = NULL;
+bool nmap_fast = false;
+char port_range_string[64] = {0};
+char temp_xml[] = "/tmp/gnom2949/cameradar_nmap_XXXXXX.xml";
 
 int spawnSock (radarType* target)
 {
@@ -139,135 +18,104 @@ int spawnSock (radarType* target)
   struct timeval timeout;
   
   sockfd = socket (AF_INET, SOCK_STREAM, 0);
-  if (sockfd < 0) return -1;
+  if (sockfd < 0) {
+    sslog (false, COL_RED, "ERROR", "socket failed");
+    return -1;
+  }
   
-  timeout.tv_sec = target->timeout_ms / 1000;
-  timeout.tv_usec = (target->timeout_ms % 1000) * 1000;
-  
-  setsockopt (sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&timeout, sizeof (timeout));
-  setsockopt (sockfd, SOL_SOCKET, SO_SNDTIMEO, (const char*)&timeout, sizeof (timeout));
+  int flags = fcntl (sockfd, F_GETFL, 0);
+  fcntl (sockfd, F_SETFL, flags | O_NONBLOCK);
   
   addr.sin_family = AF_INET;
   addr.sin_port = htons (target->port);
   addr.sin_addr.s_addr = target->ipAddr;
   
-  if (connect (sockfd, (struct sockaddr*)&addr, sizeof (addr)) < 0) {
+  connect (sockfd, (struct sockaddr*)&addr, sizeof (addr));
+
+  fd_set wset;
+  FD_ZERO (&wset);
+  FD_SET (sockfd, &wset);
+
+  struct timeval tv;
+  tv.tv_sec = target->timeout_ms / 1000;
+  tv.tv_usec = (target->timeout_ms % 1000) * 1000;
+
+  int sel = select (sockfd + 1, NULL, &wset, NULL, &tv);
+
+  if (sel <= 0) {
     close (sockfd);
     target->is_open = false;
     return -1;
   }
-  
+
+  int err = 0;
+  socklen_t len = sizeof (err);
+  getsockopt (sockfd, SOL_SOCKET, SO_ERROR, &err, &len);
+  if (err != 0) {
+    char msg[64];
+    snprintf (msg, sizeof (msg), "Port %d refused: %s", target->port, strerror (err));
+    sslog (true, COL_YLW, "SKIP", msg);
+    close (sockfd);
+    target->is_open = false;
+    return -1;
+  }
+
+  fcntl (sockfd, F_SETFL, flags);
+
+  timeout.tv_sec = target->timeout_ms / 1000;
+  timeout.tv_usec = (target->timeout_ms % 1000) * 1000;
+  setsockopt (sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof (timeout));
+  setsockopt (sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof (timeout));
+
   target->is_open = true;
-  printf (COL_GRN "\n[SUCC]Socket spawned\n" COL_DEF);
+  sslog (true, COL_GRN, "OPEN", "Socket spawned on port %d", target->port);
   return sockfd;
-}
-
-bool check4Cam (int sockfd, radarType* target) 
-{
-  char buf[1024];
-  char req[512];
-  char ipStr[INET_ADDRSTRLEN];
-  strncpy (ipStr, inet_ntoa (*(struct in_addr*)&target->ipAddr), INET_ADDRSTRLEN);
-  
-  for (int i = 0; i < (sizeof (rtspPath)/sizeof(char*)); i++) {
-    snprintf (req, sizeof (req),
-              "DESCRIBE rtsp://%s:%d%s RTSP/1.0\r\n"
-              "CSeq: 1\r\n"
-              "User-Agent: SatWatcher/1.0\r\n"
-              "Accept: application/sdp\r\n\r\n",          
-              ipStr, target->port, rtspPath[i]);
-    
-    send (sockfd, req, strlen (req), 0);
-    memset (buf, 0, sizeof (buf));
-    ssize_t received = recv (sockfd, buf, sizeof (buf) - 1, 0);
-    
-    if (received > 0) {
-      
-      if (strstr (buf, "RTSP/1.0") != NULL) {
-        
-        if (strstr (buf, "200 OK") != NULL) {
-          printf (COL_GRN "\n[SUCCESS] Found opened stream: rtsp://%s:%d%s\n" COL_DEF, ipStr, target->port, rtspPath[i]);
-          snprintf (target->service, sizeof (target->service), "RTSP OPEN");
-          return true;  
-        }
-        
-        if (strstr (buf, "401") != NULL || strstr (buf, "Unathorized") != NULL) {
-          printf (COL_YLW "\n[WARNING] Path Found: %s, needed login!\n" COL_DEF, rtspPath[i]);
-          snprintf (target->service, sizeof (target->service), "RTSP AUTH REQUIRED!", rtspPath[i]);
-          return true;
-        }                                     
-      }
-    }
-  }
-  return false;
-}
-
-void* scanim (void* arg)
-{
-  aConf* cfg = (aConf*)arg;
-  const char* frames[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
-  int i = 0;
-  while (atomic_load (&cfg->active)) {
-    printf ("\r\33[2K" COL_PRPL "[%s] %s" COL_DEF, frames[i++ % 10], cfg->msg);
-    fflush (stdout);
-    usleep (80000);
-  }
-  return NULL;
 }
 
 void usage (void)
 {
   printf (COL_CYAN "\n Welcome to the CameradarC!\n" COL_DEF);
   printf ("\n Usage:\n");
-  printf ("\n       -t value(ip)\n");
-  printf ("\n       -p value, you can type an any port that needs to scan for RTSP\n");
-  printf ("\n       -b with this you can do bruteforce, reading the logins and passwords text file in brute dir\n");
+  printf ("\n       -t --target <IP>\n");
+  printf ("\n       -p --port <PORT>, you can type an any port that needs to scan for RTSP\n");
+  printf ("\n       -b --brute with this you can do bruteforce, reading the logins and passwords text file in brute dir\n");
+  printf ("\n       -v --verbose this is a verbose, adding more logs called 'trash'\n"); /* Trash vs garbage❤❤❤ */
+  printf ("\n       -n --nmap this thing uses nmap for discovery, can takes more time\n");
+  printf ("\n       --nmap-xml <FILE> this thing uses nmap for discovery, can takes more time + uses an exisiting nmap XML\n");
+  printf ("\n       --nmap-fast Fast nmap mode, scanning only 100 top ports\n");
+  printf ("\n       --export-json <FILE> this thing exports a result into JSON\n");
+  printf ("\n       --include-amb this thing add argument that include a 'open|filtered' port from nmap XML\n");
   printf ("\n Github: https://github.com/gnom2949/cameradarC\n");
   printf ("\n Credits: https://github.com/Ullaakut/cameradar\n");
   printf ("\nThis is a free software under GNU GPLv3, see more: https://www.gnu.org/licenses/gpl-3.0.html\n");
   exit (1);
 }
 
-void* threadScan(void* arg) {
-    radarType* data = (radarType*)arg;
-    
-    int fd = spawnSock(data);
-    if (fd >= 0) {
-        printf(COL_GRN "\n[INFO] Port %d is OPEN\n" COL_DEF, data->port);
-        
-        if (check4Cam (fd, data)) {
-            if (data->doBrute) {
-                bruteforce(data);
-            }
-        }
-        close(fd);
-    }
-    
-    free(data);
-    return NULL;
-}
-
-
 int main (int argc, char *argv[])
 {
-  pthread_t anim_tid;
-  radarType target = {0};
-  atomic_store (&globA.active, true);
+  pthread_t           anim_tid;
+  radarType           target = {0};
+  atomic_store        (&globA.active, true);
   target.timeout_ms = 1000;
-  pthread_create (&anim_tid, NULL, scanim, &globA);
+  pthread_create      (&anim_tid, NULL, scanim, &globA);
+  int                 opt, optIndex = 0, portSt = 0, portEnd = 0;
+  int                 bruteF = 0;
   
   static struct option ion[] = {
-    {"target", required_argument, 0, 't'},
-    {"port", required_argument, 0, 'p'},
-    {"brute", no_argument, 0, 'b'},
-    {"help", no_argument, 0, 'h'},
+    {"target", required_argument,      0, 't'},
+    {"port", required_argument,        0, 'p'},
+    {"brute", no_argument,             0, 'b'},
+    {"verbose", no_argument,           0, 'v'},
+    {"nmap", no_argument,              0, 'n'},
+    {"nmap-xml", required_argument,    0, 1007},
+    {"fast", no_argument,              0, 1008},
+    {"export-json", required_argument, 0, 1000},
+    {"include-amb", no_argument,       0, 1006},
+    {"help", no_argument,              0, 'h'},
     {0, 0, 0, 0}
   };
-  
-  int opt, optIndex = 0, portSt = 0, portEnd = 0;
-  int bruteF = 0;
    
-  while ((opt = getopt_long (argc, argv, "t:p:bh", ion, &optIndex)) != -1) {
+  while ((opt = getopt_long (argc, argv, "t:p:bhvn", ion, &optIndex)) != -1) {
     switch (opt) {
       case 't':
         target.ipAddr = inet_addr (optarg);
@@ -275,12 +123,33 @@ int main (int argc, char *argv[])
       case 'p':
         if (strchr (optarg, '-')) {
           sscanf (optarg, "%d-%d", &portSt, &portEnd);
+          snprintf (port_range_string, sizeof (port_range_string), "%d-%d", portSt, portEnd);
         } else {
           portSt = portEnd = atoi (optarg);
+          snprintf (port_range_string, sizeof (port_range_string), "%d", portSt);
         }
         break;
       case 'b':
         bruteF = 1;
+        break;
+      case 'v':
+        crc_verbose_mode = true;
+        break;
+      case 'n':
+        use_nmap = true;
+        break;
+      case 1008:
+        nmap_fast = true;
+        break;
+      case 1007:
+        nmap_xml_file = optarg;
+        break;
+      case 1000:
+        crc_export_json = optarg;
+      break;
+      case 1006:
+        ambiguous_include = true;
+        sslog (false, COL_YLW, "INFO", "Including open|filtered port (less reliable)");
         break;
       case 'h':
       default:
@@ -288,44 +157,135 @@ int main (int argc, char *argv[])
         return 1;
     }
   }
-  
-  if (target.ipAddr == INADDR_NONE || portSt == 0) { 
+
+  if (target.ipAddr == INADDR_NONE || portSt == 0) {
     usage();
     return 1;
-  } 
+  }
+
+  bool                use_nmap_mode = (use_nmap || nmap_xml_file != NULL);
+  int                 totalPorts = portEnd - portSt + 1;
+  ResultCtx           result_ctx = {0};
+  NmRes               nmap_res = {0};
+  result_init         (&result_ctx, totalPorts);
+  char ipStr[INET_ADDRSTRLEN];
   
-  printf (globA.msg, 256,COL_CYAN "\n[INFO] Scanning target: %s\n" COL_DEF, inet_ntoa (*(struct in_addr*)&target.ipAddr));
-  
-  pthread_t threads[portEnd - portSt + 1];
-  int threadCount = 0;
-  
-  for (int p = portSt; p <= portEnd; p++) {
-    // creating a copy for every thread
-    radarType* threadData = (radarType*)malloc(sizeof(radarType));
-    if (!threadData) {  
-      perror(COL_BR_RED "Failed to allocate memory" COL_DEF);
-      continue;
+  if (use_nmap_mode) {
+    const char *xml_path = nmap_xml_file;
+    bool need_cleanup = false;
+
+    if (!xml_path) {
+      int fd = mkstemps (temp_xml, 4); // 4 is a length of '.xml' extension
+      if (fd < 0) {
+        sslog (false, COL_RED, "ERROR", "Cannot create temporary XML file");
+        return 1;
+      }
+      close (fd);
+      xml_path = temp_xml;
+      need_cleanup = true;
+
+      if (!ran_nmap (ipStr, port_range_string, xml_path, nmap_fast)) {
+        if (need_cleanup) unlink (xml_path);
+          return 1;
+      }
     }
-    memcpy (threadData, &target, sizeof (radarType));
-    threadData->port = (uint16_t)p;
+
+    nmap_parser_init (&nmap_res);
+    if (!parse_www_xml (xml_path, &nmap_res, ambiguous_include)) {
+      sslog(false, COL_YLW, "WARN", "No open ports found in nmap XML");
+      if (need_cleanup) unlink(xml_path);
+      nmap_parser_free(&nmap_res);
+      return 0;
+    }
+
+    sslog (false, COL_GRN, "INFO", "Found %d open ports via nmap", nmap_res.count);
+    result_init (&result_ctx, nmap_res.count);
+
+    pthread_t threads[nmap_res.count];
+    int threadCount = 0;
+
+    for (int i = 0; i < nmap_res.count; i++) {
+      radarType *threadData = malloc(sizeof(radarType));
+      if (!threadData) continue;
+
+      memcpy(threadData, &target, sizeof(radarType));
+      threadData->ipAddr = nmap_res.ipAddr;
+      threadData->port = nmap_res.ports[i].port;
+      threadData->doBrute = bruteF;
+      threadData->result_ctx = &result_ctx;
+
+      if (pthread_create(&threads[threadCount], NULL, threadScan, threadData) != 0) {
+        free(threadData);
+          continue;
+      }
+      threadCount++;
+
+      if (threadCount % 20 == 0) usleep(100000);
+    }
+
+    for (int i = 0; i < threadCount; i++) {
+      pthread_join(threads[i], NULL);
+    }
+
+    if (need_cleanup) {
+      unlink (xml_path);
+      nmap_parser_free (&nmap_res);
+    }
+  } else {
+    pthread_t *threads = calloc (totalPorts, sizeof (pthread_t));
+
+    if (!threads) {
+      fprintf (stderr, COL_RED "[FAILURE] Memory Allocation failed!\n" COL_DEF);
+      return 1;
+    }
     
-    if (pthread_create (&threads[threadCount++], NULL, threadScan, threadData) != 0) {
-      perror ("Failed to create thread");
-      free(threadData); 
-      continue;
+    int threadCount = 0;
+
+    for (int p = portSt; p <= portEnd; p++) {
+      radarType* threadData = malloc (sizeof (radarType));
+      if (!threadData) continue;
+
+      memcpy (threadData, &target, sizeof (radarType));
+      threadData->port = (uint16_t)p;
+      threadData->doBrute = bruteF;
+      threadData->result_ctx = &result_ctx;
+
+      pthread_create (&threads[threadCount], NULL, threadScan, threadData);
+      threadCount++;
+
+      if (threadCount % 50 == 0) usleep (50000);
     }
-                                            
-    usleep (1000); 
+
+    for (int i = 0; i < threadCount; i++)
+    {
+          pthread_join (threads[i], NULL);
+    }
+
+    atomic_store (&globA.active, false);
+    pthread_join (anim_tid, NULL);
+
+    struct in_addr addr = {.s_addr = target.ipAddr};
+    inet_ntop (AF_INET, &addr, ipStr, sizeof (ipStr));
+
+    result_print_summary (&result_ctx, ipStr);\
+
+    if (crc_export_json) {
+      export_result_json (&result_ctx, ipStr, crc_export_json);
+    }
   }
   
-  if (bruteF) {
-    bruteforce (&target);
-  }
-  
-  for (int i = 0; i < threadCount; i++) {
-    pthread_join (threads[i], NULL);
-  }
-  
-  printf (COL_GRN "\nScan Complete\n" COL_DEF);
-  return 0;
+   atomic_store(&globA.active, false);
+    pthread_join(anim_tid, NULL);
+
+    struct in_addr addr = {.s_addr = target.ipAddr};
+    inet_ntop(AF_INET, &addr, ipStr, sizeof(ipStr));
+
+    result_print_summary(&result_ctx, ipStr);
+
+    if (crc_export_json) {
+        export_result_json(&result_ctx, ipStr, crc_export_json);
+    }
+
+    result_free(&result_ctx);
+    return 0;
 }
