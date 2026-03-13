@@ -8,10 +8,13 @@ add_project_arguments('-D_GNU_SOURCE', language: 'c')
 curl = dependency ('libcurl')
 thread = dependency ('threads')
 json = dependency ('json-c')
+xml = dependency ('libxml-2.0')
 
-sources = ['main.c']
+sources = ['main.c', 'utils.c', 'nmap.c']
 
 executable ('cam',
 	sources,
-	dependencies : [curl, thread, json],
-	install : true)
+	dependencies : [curl, thread, json, xml],
+	install : true,
+	c_args: ['-Wall', '-Wextra', '-Wno-unused-function']
+)
