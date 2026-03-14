@@ -5,6 +5,23 @@
 #ifndef C_CAM_RADAR_H
 #define C_CAM_RADAR_H
 
+// === Macroses === //
+#ifdef DEBUG
+#define DBG_IP (var) sslog (false,  COL_YLW, "DEBUG", #var " = '%s' (0x%08x)", var, *(uint32_t*)(var))
+#else
+#define DBG_IP (var) ((void)0)
+#endif
+#define COL_RED "\033[31m"
+#define COL_GRN  "\033[32m"
+#define COL_YLW   "\033[33m"
+#define COL_BLU    "\033[34m"
+#define COL_PRPL    "\033[35m"
+#define COL_CYAN     "\033[36m"
+#define COL_DEF         "\033[0m"
+#define COL_BR_RED     "\033[41m"
+// === End === //
+
+// === Includes === //
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
@@ -12,6 +29,7 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <errno.h>
 #include <arpa/inet.h>
 #include <netinet/ip.h>
@@ -25,16 +43,9 @@
 #include <stdint.h>
 #include <stdatomic.h>
 #include <stdarg.h>
+// === End === //
 
-#define COL_RED "\033[31m"
-#define COL_GRN  "\033[32m"
-#define COL_YLW   "\033[33m"
-#define COL_BLU    "\033[34m"
-#define COL_PRPL    "\033[35m"
-#define COL_CYAN     "\033[36m"
-#define COL_DEF       "\033[0m"
-#define COL_BR_RED     "\033[41m"
-
+// === Structs and enums === //
 typedef struct {
   uint16_t  port;
   bool      is_open;
@@ -82,6 +93,9 @@ struct MemBuf {
 typedef struct {
   char        msg[256];
   atomic_bool active;
+  atomic_bool found;
+  atomic_bool pause;
+  pthread_mutex_t found_mutex;
 } aConf;
 
 typedef enum {
@@ -105,6 +119,8 @@ typedef struct {
   int      count;
   int      cap;
 } NmRes;
+
+// === End === //
 
 extern aConf globA;
 int spawnSock (radarType* target);
@@ -130,11 +146,19 @@ void nmap_parser_init (NmRes *res);
 bool ran_nmap (const char *target_ip, const char *port_range, const char *xml_output, bool fast_mode);
 void nmap_parser_free (NmRes *res);
 int check4File (const char *path);
+bool check4Right (bool use_syn_scan);
+bool restart_with_sudo(int argc, char *argv[]);
+char* input_prompt (const char *prompt,
+                    aConf      *cfg,
+                    char       *buf,
+                    size_t      bufsize);
+
 
 extern const char* const rtspPath[];
 extern const size_t rtspPcount;
 extern bool crc_verbose_mode;
 extern const char *crc_export_json;
 extern bool ambiguous_include;
+extern bool crc_nmap_connect;
 
 #endif
