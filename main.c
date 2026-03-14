@@ -8,8 +8,9 @@ bool ambiguous_include = false;
 bool use_nmap = false;
 const char *nmap_xml_file = NULL;
 bool nmap_fast = false;
+bool crc_nmap_connect = false;
 char port_range_string[64] = {0};
-char temp_xml[] = "/tmp/gnom2949/cameradar_nmap_XXXXXX.xml";
+static char temp_xml[] = "/tmp/g78_cameradar_nmap_XXXXXX.xml";
 
 int spawnSock (radarType* target)
 {
@@ -168,11 +169,48 @@ int main (int argc, char *argv[])
   ResultCtx           result_ctx = {0};
   NmRes               nmap_res = {0};
   result_init         (&result_ctx, totalPorts);
-  char ipStr[INET_ADDRSTRLEN];
+  char ipStr[INET_ADDRSTRLEN] = {0};
+
+  struct in_addr addr = {.s_addr = target.ipAddr};
+  if (inet_ntop(AF_INET, &addr, ipStr, sizeof(ipStr)) == NULL) {
+    sslog (false, COL_RED, "FAILURE", "Inet_ntop failed: %s", strerror (errno));
+    return 1;
+  }
+
+  sslog(false, COL_CYAN, "TARGET", "Scanning %s (0x%08x)", ipStr, target.ipAddr);
   
   if (use_nmap_mode) {
     const char *xml_path = nmap_xml_file;
     bool need_cleanup = false;
+    if (check4Right (true)) {
+      printf (COL_YLW "\n⚠  Root previleges required for SYN scan\n" COL_DEF);
+      printf ("This allows faster and more accurate port detection.\n\n");
+      printf ("   [Y] Restart with sudo (Recommended)\n");
+      printf ("   [N] Continue with slower TCP scan\n");
+      printf ("   [Q] Quit\n\n");
+      fflush (stdout);
+
+      char choice[16];
+      if (input_prompt ("Choice [Y/n/q]: ", &globA, choice, sizeof (choice))) {
+        choice[strcspn (choice, "\r\n")] = 0;
+
+        if (choice[0] == 'q' || choice[0] == 'Q') {
+            printf (COL_CYAN "Bye.\n" COL_DEF);
+            atomic_store (&globA.active, false);
+            pthread_join (anim_tid, NULL);
+            return 0;
+        } else if (choice[0] != 'n' && choice[0] == 'N') {
+          if (!restart_with_sudo (argc, argv)) {
+            fprintf (stderr, COL_RED "Failed to escalate privilegies.\n" COL_DEF);
+            fprintf (stderr, "Please run manually: sudo %s\n", argv[0]);
+            return 1;
+          }
+        } else {
+            crc_nmap_connect = true;
+            sslog (false, COL_YLW, "INFO", "Using TCP Scan");
+        }
+      }
+    }
 
     if (!xml_path) {
       int fd = mkstemps (temp_xml, 4); // 4 is a length of '.xml' extension
@@ -199,7 +237,6 @@ int main (int argc, char *argv[])
     }
 
     sslog (false, COL_GRN, "INFO", "Found %d open ports via nmap", nmap_res.count);
-    result_init (&result_ctx, nmap_res.count);
 
     pthread_t threads[nmap_res.count];
     int threadCount = 0;
@@ -267,17 +304,11 @@ int main (int argc, char *argv[])
     struct in_addr addr = {.s_addr = target.ipAddr};
     inet_ntop (AF_INET, &addr, ipStr, sizeof (ipStr));
 
-    result_print_summary (&result_ctx, ipStr);\
-
-    if (crc_export_json) {
-      export_result_json (&result_ctx, ipStr, crc_export_json);
-    }
   }
   
    atomic_store(&globA.active, false);
     pthread_join(anim_tid, NULL);
 
-    struct in_addr addr = {.s_addr = target.ipAddr};
     inet_ntop(AF_INET, &addr, ipStr, sizeof(ipStr));
 
     result_print_summary(&result_ctx, ipStr);
