@@ -4,7 +4,7 @@
  */
 #include "cam.h"
 
-aConf           globA = {.msg = "Initializing...", .active = true};
+aConf           globA = {.msg = "Initializing...", .active = true, .pause = false};
 pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
 bool            crc_verbose_mode = false;
 const char *crc_export_json = NULL;
@@ -395,7 +395,13 @@ void* scanim (void* arg)
   aConf* cfg = (aConf*)arg;
   const char* frames[] = {"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"};
   int i = 0;
+
   while (atomic_load (&cfg->active)) {
+    if (atomic_load (&cfg->pause)) {
+      usleep (1000000);
+      continue;
+    }
+
     printf ("\r\33[2K" COL_PRPL "[%s] %s" COL_DEF, frames[i++ % 10], cfg->msg);
     fflush (stdout);
     usleep (80000);
@@ -456,14 +462,22 @@ int check4File (const char *path)
     return 2;
   }
 
-  sslog (true, COL_GRN, "SYSTEM", "Valid XML Found: %s", path);
+  sslog (true, COL_GRN, "SYSTEM", "Valid File Found: %s", path);
   return 0;
 }
 
 bool ran_nmap (const char *target_ip, const char *port_range, const char *xml_output, bool fast_mode)
 {
+  sslog (true, COL_YLW, "DEBUG", "ran_nmap called: ");
+  sslog (true, COL_YLW, "DEBUG", " target_ip = '%s', len=%zu, ptr=%p", target_ip ? target_ip : "null", target_ip ? strlen (target_ip) : 0, (void*)target_ip);
   if (!target_ip || !xml_output) {
     sslog (false, COL_RED, "ERROR", "Invalid arguments for nmap scan.");
+    return false;
+  } else if (strlen (target_ip) == 0) {
+    sslog (false, COL_RED, "ERROR", "target ip is NULL or Empty");
+    return false;
+  } else if (!xml_output) {
+    sslog (false, COL_RED, "ERROR", "xml output is NULL!");
     return false;
   }
 
@@ -472,20 +486,23 @@ bool ran_nmap (const char *target_ip, const char *port_range, const char *xml_ou
     return false;
   }
 
+  const char *scan_type = crc_nmap_connect ? "-sT" : "-sS";
+  const char *timing = crc_nmap_connect ? "T2" : "T3";
+
   char cmd[1024];
 
   if (fast_mode) {
     snprintf (cmd, sizeof (cmd),
-              "nmap -sS -T4 --top-ports 100 -oX %s %s 2>/dev/null", xml_output, target_ip);
+              "nmap %s -%s --top-ports 100 -oX %s %s 2>/dev/null", scan_type, timing, xml_output, target_ip);
   } else if (port_range && strlen (port_range) > 0) {
     snprintf (cmd, sizeof (cmd),
-              "nmap -sS -sV -T3 -p %s -oX %s %s 2>/dev/null", port_range, xml_output, target_ip);
+              "nmap %s -sV -%s -p %s -oX %s %s 2>/dev/null", scan_type,  timing, port_range, xml_output, target_ip);
   } else {
     snprintf(cmd, sizeof(cmd),
-                 "nmap -sS -sV -T3 -oX %s %s 2>/dev/null", xml_output, target_ip);
+                 "nmap %s -sV -%s -oX %s %s 2>/dev/null", scan_type, timing, xml_output, target_ip);
   }
 
-  sslog (true, COL_BLU, "NMAP", "Running: %s", cmd);
+  sslog (true, COL_BLU, "NMAP", "Running: %s, UID:%d", cmd, getuid());
 
   int ran = system (cmd);
 
@@ -504,4 +521,62 @@ bool ran_nmap (const char *target_ip, const char *port_range, const char *xml_ou
 
   sslog (true, COL_GRN, "SYSTEM", "Scan completed, XML to %s", xml_output);
   return true;
+}
+
+bool check4Right (bool use_syn_scan)
+{
+  return use_syn_scan && (getuid() != 0);
+}
+
+bool restart_with_sudo (int argc, char *argv[])
+{
+  sslog (false, COL_YLW, "PRIV", "Root privileges required for nmap (-sS)");
+
+  char **sudo_argv = malloc ((argc + 3) * sizeof (char *));
+  if (!sudo_argv) {
+    sslog (false, COL_BR_RED, "ERROR", "Memory allocation failed");
+    return false;
+  }
+
+  sudo_argv[0] = "sudo";
+  sudo_argv[1] = "-E"; // saves enviroment
+
+  for (int i = 0; i < argc; i++) {
+    sudo_argv[i + 2] = argv[i];
+  }
+  sudo_argv[argc + 2] = NULL;
+
+  char ePath[1024];
+  ssize_t len = readlink ("/proc/self/exe", ePath, sizeof (ePath) - 1);
+  if (len == 1) {
+    //fallback
+    sslog (true, COL_YLW, "WARNING", "Cannot resolve exe path, using argv[0]");
+    execvp ("sudo", sudo_argv);
+  } else {
+    ePath[len] = '\0';
+    execvp ("sudo", sudo_argv);
+  }
+  sslog(false, COL_RED, "ERROR", "Failed to exec sudo: %s", strerror(errno));
+  free(sudo_argv);
+  return false;
+}
+
+char* input_prompt (const char *prompt,
+                    aConf      *cfg,
+                    char       *buf,
+                    size_t      bufsize)
+{
+  atomic_store(&cfg->pause, true);
+
+    printf("\r\33[2K%s", prompt);
+    fflush(stdout);
+
+    char *result = fgets(buf, bufsize, stdin);
+
+    atomic_store(&cfg->pause, false);
+
+    printf("\n");
+    fflush(stdout);
+
+    return result;
 }
