@@ -14,7 +14,7 @@ void result_init (ResultCtx *ctx, int cap)
   // ctx->results = calloc (cap, sizeof (ScanResult)); this is a garbage. First allocation
   ctx->count = 0;
   ctx->cap = cap;
-  ctx->results = malloc (cap * sizeof (ScanResult)); // second.
+  ctx->results = MemoryAllocate (cap * sizeof (ScanResult)); // second.
   if (!ctx->results) {
     sslog (false, COL_RED, "ERROR", "Memory allocation failed!");
     return;
@@ -71,7 +71,7 @@ void result_print_summary (ResultCtx  *ctx, const char *ip)
 void result_free (ResultCtx *ctx)
 {
   pthread_mutex_lock (&ctx->mutex);
-  free (ctx->results);
+  cleanbit (ctx->results);
   ctx->results = NULL;
   ctx->count = 0;
   ctx->cap = 0;
@@ -117,7 +117,7 @@ static size_t WrMemCallback(void *contents, size_t size, size_t nmemb, void *use
     size_t realsize = size * nmemb;
 
     if (mem->size > SIZE_MAX - realsize - 1) return 0;
-    char *ptr = realloc(mem->memory, mem->size + realsize + 1);
+    char *ptr = MemoryReAllocate (mem->memory, mem->size + realsize + 1);
     if (!ptr) return 0;
 
     mem->memory = ptr;
@@ -422,7 +422,7 @@ void* threadScan(void* arg) /* fuck threads */
     if (fd < 0) {
       res.is_open = false;
       if (data->result_ctx) result_add (data->result_ctx, &res);
-      free (data);
+      //cleanbit (data);
       return NULL;
     }
 
@@ -440,7 +440,7 @@ void* threadScan(void* arg) /* fuck threads */
     }
 
     close (fd);
-    free (data);
+    cleanbit (data);
     return NULL;
 }
 
@@ -532,7 +532,7 @@ bool restart_with_sudo (int argc, char *argv[])
 {
   sslog (false, COL_YLW, "PRIV", "Root privileges required for nmap (-sS)");
 
-  char **sudo_argv = malloc ((argc + 3) * sizeof (char *));
+  char **sudo_argv = MemoryAllocate ((argc + 3) * sizeof (char *));
   if (!sudo_argv) {
     sslog (false, COL_BR_RED, "ERROR", "Memory allocation failed");
     return false;
@@ -557,7 +557,7 @@ bool restart_with_sudo (int argc, char *argv[])
     execvp ("sudo", sudo_argv);
   }
   sslog(false, COL_RED, "ERROR", "Failed to exec sudo: %s", strerror(errno));
-  free(sudo_argv);
+  cleanbit (sudo_argv);
   return false;
 }
 
