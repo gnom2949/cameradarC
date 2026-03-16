@@ -242,7 +242,7 @@ int main (int argc, char *argv[])
     int threadCount = 0;
 
     for (int i = 0; i < nmap_res.count; i++) {
-      radarType *threadData = malloc(sizeof(radarType));
+      radarType *threadData = MemoryAllocate (sizeof(radarType));
       if (!threadData) continue;
 
       memcpy(threadData, &target, sizeof(radarType));
@@ -252,7 +252,7 @@ int main (int argc, char *argv[])
       threadData->result_ctx = &result_ctx;
 
       if (pthread_create(&threads[threadCount], NULL, threadScan, threadData) != 0) {
-        free(threadData);
+          cleanbit (threadData);
           continue;
       }
       threadCount++;
@@ -279,7 +279,7 @@ int main (int argc, char *argv[])
     int threadCount = 0;
 
     for (int p = portSt; p <= portEnd; p++) {
-      radarType* threadData = malloc (sizeof (radarType));
+      radarType* threadData = MemoryAllocate (sizeof (radarType));
       if (!threadData) continue;
 
       memcpy (threadData, &target, sizeof (radarType));
