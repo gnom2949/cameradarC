@@ -1,10 +1,22 @@
 project ('cameradarC', 'c',
 	version : '0.1',
 	default_options : ['c_std=c99', 'warning_level=2'])
-	
+
 add_project_arguments('-D_GNU_SOURCE', language: 'c')
 	
 #deps
+install_headers ('memory/IntMemoryManager.h', subdir: 'imm')
+
+libimm = shared_library ('imm',
+	'memory/IntMemoryManager.c',
+	install: true,
+	include_directories: include_directories('memory')
+)
+
+imm = declare_dependency(
+	link_with: libimm,
+	include_directories: include_directories('memory')
+)
 curl = dependency ('libcurl')
 thread = dependency ('threads')
 json = dependency ('json-c')
@@ -14,7 +26,7 @@ sources = ['main.c', 'utils.c', 'nmap.c']
 
 executable ('cam',
 	sources,
-	dependencies : [curl, thread, json, xml],
+	dependencies : [curl, thread, json, xml, imm],
 	install : true,
 	c_args: ['-Wall', '-Wextra', '-Wno-unused-function']
 )
