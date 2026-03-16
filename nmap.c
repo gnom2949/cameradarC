@@ -4,7 +4,11 @@
 
 void nmap_parser_init (NmRes *res)
 {
-  res->ports = calloc (1000, sizeof (PInfo));
+  size_t total = 1000 * sizeof (PInfo);
+  res->ports = MemoryAllocate (total);
+  if (res->ports) {
+    memset (res->ports, 0, total);
+  }
   res->count = 0;
   res->cap = 1000;
 }
@@ -17,7 +21,7 @@ void nmap_parser_add (NmRes      *res,
 {
     if (res->count >= res->cap) {
       res->cap *= 2;
-      res->ports = realloc (res->ports, res->cap * sizeof (PInfo));
+      res->ports = MemoryReAllocate (res->ports, res->cap * sizeof (PInfo));
     }
     PInfo *p = &res->ports[res->count++];
     p->port = port;
@@ -165,7 +169,7 @@ bool parse_www_xml (const char *xml_file, NmRes *res, bool ambiguous_include)
               }
               token = strtok (NULL, ",");
             }
-            free (portscpy);
+            cleanbit (portscpy);
 
             sslog (true, COL_YLW, "XML", "Added %d ports from extraports [%s]", count, state_string);
           }
@@ -188,7 +192,7 @@ bool parse_www_xml (const char *xml_file, NmRes *res, bool ambiguous_include)
 
 void nmap_parser_free (NmRes *res)
 {
-  free (res->ports);
+  cleanbit (res->ports);
   res->ports = NULL;
   res->count = 0;
 }
