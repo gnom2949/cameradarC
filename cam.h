@@ -43,6 +43,7 @@
 #include <stdint.h>
 #include <stdatomic.h>
 #include <stdarg.h>
+#include <imm/IntMemoryManager.h>
 // === End === //
 
 // === Structs and enums === //
@@ -91,7 +92,7 @@ struct MemBuf {
 };
 
 typedef struct {
-  char        msg[256];
+  char        msg[512];
   atomic_bool active;
   atomic_bool found;
   atomic_bool pause;
