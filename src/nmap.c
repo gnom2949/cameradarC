@@ -151,13 +151,13 @@ bool parse_www_xml (const char *xml_file, NmRes *res, bool ambiguous_include)
         PState state = parse_port_state ((char*)state_string);
           int count = atoi ((char*)count_string);
 
-          if ((state == PORT_OPEN || (state == PORT_OPEN_FILTER && ambiguous_include)) && port_list) {
+          if ((state == PORT_OPEN || (state == PORT_OPEN_FILTER && ambiguous_include))) {
             // parse a list of ports
             char *portscpy = strdup ((char*)port_list);
             char *token = strtok (portscpy, ",");
 
             while (token) {
-              char *dash = strchr (token, '-');
+              const char *dash = strchr (token, '-');
               if (dash) {
                 int start = atoi (token);
                 int end = atoi (dash + 1);
