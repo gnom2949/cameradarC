@@ -208,8 +208,8 @@ int main (int argc, char *argv[])
             atomic_store (&globA.active, false);
             pthread_join (anim_tid, NULL);
             return 0;
-        } else if (choice[0] != 'n' && choice[0] == 'N') {
-          if (!restart_with_sudo (argc, argv)) {
+        } else if (choice[0] != 'n') {
+          if (!restart_with_sudo (a                             rgc, argv)) {
             fprintf (stderr, COL_RED "Failed to escalate privilegies.\n" COL_DEF);
             fprintf (stderr, "Please run manually: sudo %s\n", argv[0]);
             return 1;
@@ -310,7 +310,6 @@ int main (int argc, char *argv[])
     atomic_store (&globA.active, false);
     pthread_join (anim_tid, NULL);
 
-    struct in_addr addr = {.s_addr = target.ipAddr};
     inet_ntop (AF_INET, &addr, ipStr, sizeof (ipStr));
 
   }
