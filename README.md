@@ -38,7 +38,7 @@ sudo meson install -C build # if you compile first, start with sudo, meson build
 | --nmap/-n | Enables nmap scanning, unstable feature | cam -t 192.168.1.1 -p 554 -n| ✘ |
 | --nmap-xml | Enables nmap scanning with xml | cam -t 192.168.1.1 -p 554 --nmap-xml <FILE>.xml | ✘ |
 | --fast | Argument for nmap, enables fastest scan (SYN) + add top 100 ports argument | cam -t 192.168.1.1 -p 554 -n --fast | ✘ |
-| --include-amb | Includes an 'ambiguous scan' that show 'trash' port in nmap tagged 'open|filtered'| cam -t 192.168.1.1 -p 554 -n --include-amb | ✘ |
+| --include-amb | Includes an 'ambiguous scan' that show 'trash' port in nmap tagged 'open filtered'| cam -t 192.168.1.1 -p 554 -n --include-amb | ✘ |
 | --help/-h | Shows help | cam -h | ✘ |
 
 # Credits
