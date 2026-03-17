@@ -78,7 +78,7 @@ int spawnSock (radarType* target)
 
 void usage (void)
 {
-  printf (COL_CYAN "\n Welcome to the CameradarC v0.2!\n" COL_DEF);
+  printf (COL_CYAN "\n Welcome to the CameradarC %s!\n" COL_DEF, PROJECT_VERSION);
   printf ("\n Usage:\n");
   printf ("\n       -t --target <IP>\n");
   printf ("\n       -p --port <PORT>, you can type an any port that needs to scan for RTSP\n");
