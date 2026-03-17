@@ -235,20 +235,20 @@ bool bruteforce (radarType* target)
   fseek (fPass, 0, SEEK_SET);
 
   if (log_s == 0) {
-    sslog (false, COL_RED, "ERROR", "brute/logins.txt are empty!");
-    fclose (fLog);
-    fclose (fPass);
-    atomic_store (&globA.active, false);
-    pthread_join (anim_tid, NULL);
-    return false;
-  } else if (pass_s == 0) {
-    sslog (false, COL_RED, "ERROR", "brute/passwords.txt are empty!");
-    fclose (fLog);
-    fclose (fPass);
-    atomic_store (&globA.active, false);
-    pthread_join (anim_tid, NULL);
-    return false;
+    sslog (false, COL_RED, "ERROR", "brute/logins.txt is empty!");
+    goto brute_cleanup;
   }
+
+  if (pass_s == 0) {
+    sslog (false, COL_RED, "ERROR", "brute/passwords.txt is empty!");
+    goto brute_cleanup;
+  }
+
+  brute_cleanup:
+    if (fLog) close (fLog);
+    if (fPass) close (fPass);
+    atomic_store (&globA.active, false);
+    return false;
 
   sslog (true, COL_CYAN, "INFO", "Loaded %ld bytes from logins.txt, %ld bytes from passwords.");
 
@@ -474,10 +474,14 @@ bool ran_nmap (const char *target_ip, const char *port_range, const char *xml_ou
   if (!target_ip || !xml_output) {
     sslog (false, COL_RED, "ERROR", "Invalid arguments for nmap scan.");
     return false;
-  } else if (strlen (target_ip) == 0) {
+  }
+
+  if (strlen (target_ip) == 0) {
     sslog (false, COL_RED, "ERROR", "target ip is NULL or Empty");
     return false;
-  } else if (!xml_output) {
+  }
+
+  if (!xml_output) {
     sslog (false, COL_RED, "ERROR", "xml output is NULL!");
     return false;
   }
