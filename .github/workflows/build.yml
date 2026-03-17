@@ -1,0 +1,38 @@
+name: C/C++ CI
+
+on:
+  push:
+    branches: [ "main", "unstable" ]
+  pull_request: 
+    branches: [ "main", "unstable" ]
+
+  jobs:
+    build:
+      runs-on: ubuntu-latest
+
+      steps:
+        - uses: action/checkout@v4
+          with: 
+            fetch-depth: 0
+
+        - name: Install dependencies
+          run: |
+            sudo apt-get update
+            sudo apt-get install -y \
+              meson \
+              libxml2-dev \
+              libjson-c-dev \
+              libcurl4-openssl-dev \
+              nmap \
+              ninja-build \
+              pkg-config
+        
+        - name: Configure Project
+          run: meson setup build --prefix=/usr
+
+        - name: Compile
+          run: meson install -C build
+
+        - name: Run static analysis
+          run: cppcheck --enable=all src/ --error-exitcode=1
+          continue-on-error: true
