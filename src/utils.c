@@ -273,8 +273,11 @@ bool bruteforce (radarType* target)
         if (received > 0 && strstr (resp, "RTSP/1.0 200")) {
           sslog (false, COL_GRN, "SUCCESS", "%s:%d%s -> %s:%s\n", ip, target->port, rtspPath[p], login, pass);
           FILE *res = fopen ("found.txt", "a");
+          if (res) {
+            fprintf (res, "rtsp://%s:%s@%s:%d%s\n", login, pass, ip, target->port, rtspPath[p]);
+            fclose (res);
+          }
           goto brute_success;
-          fclose (res);
         }
         snprintf (globA.msg, 256, COL_BLU "\r[INFO] Brute Attemp #%d | %s:%s on %s, please wait." COL_DEF, attemp, login, pass, rtspPath[p]);
         fflush (stdout);
@@ -450,11 +453,6 @@ bool ran_nmap (const char *target_ip, const char *port_range, const char *xml_ou
 
   if (strlen (target_ip) == 0) {
     sslog (false, COL_RED, "ERROR", "target ip is NULL or Empty");
-    return false;
-  }
-
-  if (!xml_output) {
-    sslog (false, COL_RED, "ERROR", "xml output is NULL!");
     return false;
   }
 
