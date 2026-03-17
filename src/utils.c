@@ -216,12 +216,13 @@ bool bruteforce (radarType* target)
     sslog (false, COL_RED, "ERROR", "Cannot open brute/logins.txt");
     atomic_store(&globA.active, false);
     pthread_join(anim_tid, NULL);
+    fclose (fLog);
     return false;
   } else if (!fPass) {
     sslog (false, COL_RED, "ERROR", "Cannot open brute/passwords.txt");
     atomic_store(&globA.active, false);
     pthread_join(anim_tid, NULL);
-    fclose (fLog);
+    fclose (fPass);
     return false;
   }
 
