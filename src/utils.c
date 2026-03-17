@@ -245,8 +245,8 @@ bool bruteforce (radarType* target)
   }
 
   brute_cleanup:
-    if (fLog) close (fLog);
-    if (fPass) close (fPass);
+    if (fLog) fclose (fLog);
+    if (fPass) fclose (fPass);
     atomic_store (&globA.active, false);
     return false;
 
