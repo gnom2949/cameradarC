@@ -1,0 +1,104 @@
+---
+name: Build and Package Releases
+on:
+  push:
+    tags:
+      - v*
+jobs:
+  build:
+    name: Build for ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: x86_64
+            cross_file: ""
+            pkg_arch: x86-64
+          - arch: aarch64
+            cross_file: --cross-file cross-aarch64.txt
+            pkg-arch: aarch64
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Dependencies (Native)
+        if: matrix.arch == '86_64'
+        run: >
+          sudo apt-get update
+
+          sudo apt-get install -y meson ninja-build gcc g++ libcurl4-openssl-dev libjson-c-dev libxml2-dev libgtest-dev
+      - name: Install Dependencies (arm64)
+        if: matrix.arch == 'aarch64'
+        run: >
+          sudo apt-get update
+
+          sudo apt-get install -y meson ninja-build gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+          echo "[host_machine]" > cross-aarch64.txt
+
+          echo "system = 'linux'" >> cross-aarch64.txt
+
+          echo "cpu_family = 'aarch64'" >> cross-aarch64.txt
+
+          echo "cpu = 'aarch64'" >> cross-aarch64.txt
+
+          echo "endian = 'little'" >> cross-aarch64.txt
+
+          echo "[binaries]" >> cross-aarch64.txt
+
+          echo "c = 'aarch64-linux-gnu-gcc'" >> cross-aarch64.txt
+
+          echo "cpp = 'aarch64-linux-gnu-g++'" >> cross-aarch64.txt
+
+          echo "strip = 'aarch64-linux-gnu-strip'" >> cross-aarch64.txt
+      - name: Configure Meson
+        run: meson setup build ${{ matrix.cross_file }} --prefix=/usr
+      - name: Build
+        run: meson compile -C build
+      - name: Run Tests (x86_64 only)
+        if: matrix.arch == 'x86_64'
+        run: meson test -C build
+      - name: Install to staging dir
+        run: |
+          DESTDIR=$PWD/stage meson install -C build
+          if [ "${{ matrix.arch }}" == "aarch64" ]; then
+            aarch64-linux-gnu-strip stage/usr/bin/cam || true
+          else
+            strip stage/usr/bin/cam || true
+          fi
+      - name: Create Tarballs
+        run: >
+          mkdir -p cameradarC-${{ matrix.pkg_arch }}
+
+          cp -r stage/usr/* cameradarC-${{ matrix.pkg_arch }}/
+
+          cp LICENSE README.md cameradarC-${{ matrix.pkg_arch }}/ || true
+
+
+          # packaging
+
+          tar -czvf cameradarC-${{ matrix.pkg_arch }}.tar.gz cameradarC-${{ matrix.pkg_arch }}
+
+          tar -cJvf cameradarC-${{ matrix.pkg_arch }}.tar.xz cameradarC-${{ matrix.pkg_arch }}
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cameradarC-${{ matrix.pkg_arch }}
+          path: cameradarC-${{ matrix.pkg_arch }}.*
+    release:
+      name: Create Github Release
+      needs: build
+      runs-on: ubuntu-latest
+      steps:
+        - name: Download all Artifacts
+          uses: actions/download-artifact@v4
+          with:
+            path: artifacts
+            merge-multiple: true
+        - name: Create Release
+          uses: softprops/action-gh-release@v2
+          with:
+            files: artifacts/*
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
