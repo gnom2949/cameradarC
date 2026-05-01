@@ -1,19 +1,26 @@
 # CameradarC 
-A camera radar written on C, can export results into json, parse xml from nmap(-oX), bruteforce.
+A Cameradar on C.
+Can:
 
+- Export results in JSON
+- Multithreading
+- use nmap for scan and parse xml
+- Fast memory API
+- Bruteforce
+  
 # Install
 
 ### First install dependencies
 
 ```bash
 # on fedora
-sudo dnf install libxml2-devel json-c-devel libcurl-devel meson nmap
+sudo dnf install libxml2-devel json-c-devel libcurl-devel meson nmap gtest-devel
 
 # debian
-sudo apt install libxml2-dev libjson-c-dev libcurl4-openssl-dev meson nmap
+sudo apt install libxml2-dev libjson-c-dev libcurl4-openssl-dev meson nmap libgtest-dev
  
 # arch
-sudo pacman -S libxml2 json-c curl meson nmap
+sudo pacman -S libxml2 json-c curl meson nmap gtest
 ```
 
 ### Then build.
