@@ -24,9 +24,9 @@ add_project_arguments('-D_GNU_SOURCE', language: 'c')
 #deps
 install_headers ('imm/IntMemoryManager.h', subdir: 'imm')
 
-libimm = shared_library ('imm',
+libimm = static_library ('imm',
 	'imm/IntMemoryManager.c',
-	install: true,
+	install: false,
 	include_directories: include_directories('.')
 )
 
@@ -47,7 +47,6 @@ executable ('cam',
 	dependencies : [curl, thread, json, xml, imm],
 	include_directories : inc,
 	install : true,
-        link_args: ['-static'],
 	c_args: ['-Wall', '-Wextra', '-Wno-unused-function']
 )
 
