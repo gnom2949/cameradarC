@@ -11,27 +11,105 @@
 #include <stddef.h>
 #include <unistd.h>
 #include <string.h>
-#include <stdio.h>
 #include <assert.h>
 #include <stdint.h>
 #include <pthread.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
-#define AR_SIZE (1024 * 1024 * 100) // 100MB of memory, maybe i shound have smaller than that size, but is testing and this version of cameradarC needed a unstable branch
 
+static size_t global_required_size = 100 * 1024 * 1024; // By default 100MB
 static IntMemoryRange *base = NULL; // base of the linked list of memory blocks
 static pthread_mutex_t imm_lock = PTHREAD_MUTEX_INITIALIZER;
 
 static void *ar_start = NULL;
 
+static IntMemoryPool *_create_pool_structure (size_t size)
+{
+  void *region = mmap (NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (!region) return NULL;
+
+  IntMemoryPool *pool = (IntMemoryPool *)malloc (sizeof (IntMemoryPool));
+  if (!pool)
+  {
+    munmap (region, size);
+    return NULL;
+  }
+  pool->base = (IntMemoryRange *)region;
+
+  pool->total_size = size;
+  pthread_mutex_init (&pool->lock, NULL);
+
+  pool->base->size = size - BLOCK_SIZE;
+  pool->base->free = 1;
+  pool->base->hex = IMM_HEX;
+  pool->base->next = NULL;
+  pool->base->prev = NULL;
+  pool->base->ptr = (void *)(pool->base + 1);
+
+  return pool;
+}
+
+void MemoryRequire (size_t bytes)
+{
+  if (base == NULL)
+  {
+    global_required_size = bytes;
+  }
+}
+
+void MemoryRequireKB (size_t kilobytes)
+{
+  MemoryRequire (kilobytes * 1024);
+}
+
+IntMemoryPool *MemoryPoolCreate (size_t size)
+{
+  return _create_pool_structure (size);
+}
+
+void MemoryPoolCorrupt (IntMemoryPool *pool)
+{
+  if (!pool) return;
+  pthread_mutex_lock (&pool->lock);
+  munmap (pool->base, pool->total_size);
+  pthread_mutex_unlock (&pool->lock);
+  pthread_mutex_destroy (&pool->lock);
+  free (pool);
+}
+
+void MemoryPoolAdd (IntMemoryPool *pool, size_t size)
+{
+  if (!pool) return;
+
+  pthread_mutex_lock (&pool->lock);
+
+  void *region = mmap (NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (region != MAP_FAILED)
+  {
+    IntMemoryRange *nblock = (IntMemoryRange *)region;
+    nblock->size           = size - BLOCK_SIZE;
+    nblock->free           = 1;
+    nblock->hex            = IMM_HEX;
+    nblock->ptr            = (void *)(nblock + 1);
+    nblock->prev           = NULL;
+    nblock->next           = pool->base;
+    if (pool->base) pool->base->prev = nblock;
+    pool->base             = nblock;
+    pool->total_size       += size;
+
+  }
+  pthread_mutex_unlock (&pool->lock);
+}
+
 static int imm_init()
 {
   if (base != NULL) return 0;
 
-  base  = mmap (NULL, AR_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  base  = mmap (NULL, global_required_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (base == MAP_FAILED) return -1;
 
-  base->size = AR_SIZE - BLOCK_SIZE;
+  base->size = global_required_size - BLOCK_SIZE;
   base->free = 1;
   base->hex = IMM_HEX;
   base->next = NULL;
@@ -164,4 +242,17 @@ void *MemoryReAllocate (void   *ptr, size_t  size)
 
   pthread_mutex_unlock (&imm_lock);
   return fresh_ptr;
+}
+
+void *MemoryAllocateAndFillZero (size_t nmemb, size_t size)
+{
+  if (nmemb == 0 || size == 0) return NULL;
+  if (nmemb > SIZE_MAX / size) return NULL;
+
+  size_t total = nmemb * size;
+
+  void *ptr = MemoryAllocate (total);
+
+  if (ptr) memset (ptr, 0, total);
+  return ptr;
 }
