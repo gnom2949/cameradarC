@@ -1,15 +1,15 @@
-project ('cameradarC', 'c',
-	version : '0.2.0-unstable',
-	default_options : ['c_std=c99', 'warning_level=2']
+project ('cameradarC', 'c', 'cpp',
+	version : '0.2.2-stable',
+	default_options : ['c_std=c99', 'cpp_std=c++14', 'warning_level=2']
 )
 
 v_h = vcs_tag (
 	input : 'src/version.h.in',
 	output : 'version.h',
-	fallback : '0.2.0-unstable'
+	fallback : '0.2.1-unstable'
 )
 
-confDt = configuration_data()
+confDt   = configuration_data()
 confDt.set_quoted ('PROJECT_VERSION', meson.project_version())
 
 configure_file(
@@ -38,8 +38,9 @@ curl = dependency ('libcurl')
 thread = dependency ('threads')
 json = dependency ('json-c')
 xml = dependency ('libxml-2.0')
+gtest = dependency ('gtest', main : true, required : false)
 
-sources = ['src/main.c', 'src/utils.c', 'src/nmap.c', v_h]
+sources = ['src/main.c', 'src/utils.c', 'src/nmap.c', 'src/runner.c', 'src/scanners.c', 'src/socks.c', 'src/dictionary.c', v_h]
 
 executable ('cam',
 	sources,
@@ -48,3 +49,16 @@ executable ('cam',
 	install : true,
 	c_args: ['-Wall', '-Wextra', '-Wno-unused-function']
 )
+
+test_sources = ['tests/test_mem.cpp', 'tests/testcam.cpp', 'src/nmap.c', 'src/utils.c', 'src/runner.c', 'src/socks.c', 'src/scanners.c', 'src/dictionary.c', v_h]
+
+camtest = executable ('camt',
+	test_sources,
+	dependencies : [gtest, imm, thread, curl, json, xml],
+	include_directories : include_directories('.'),
+	link_args : ['-Wl,--wrap=spawnSock']
+)
+
+test ('intmemorymanager_allocator_test', camtest)
+
+install_subdir ('src/brute', install_dir : get_option('datadir') / 'gnom2949')
