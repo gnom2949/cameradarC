@@ -8,93 +8,13 @@
 #include "version.h"
 #include "config.h"
 bool ambiguous_include = false;
+//pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
 bool use_nmap = false;
-const char *nmap_xml_file = NULL;
+const char *nmap_xml_file = null;
 bool nmap_fast = false;
 bool crc_nmap_connect = false;
 char port_range_string[64] = {0};
 static char temp_xml[] = "/tmp/g78_cameradar_nmap_XXXXXX.xml";
-
-int spawnSock (radarType* target)
-{
-  int sockfd;
-  struct sockaddr_in addr;
-  struct timeval timeout;
-
-  sockfd = socket (AF_INET, SOCK_STREAM, 0);
-  if (sockfd < 0) {
-    sslog (false, COL_RED, "ERROR", "socket failed");
-    return -1;
-  }
-
-  int flags = fcntl (sockfd, F_GETFL, 0);
-  fcntl (sockfd, F_SETFL, flags | O_NONBLOCK);
-
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons (target->port);
-  addr.sin_addr.s_addr = target->ipAddr;
-
-  connect (sockfd, (struct sockaddr*)&addr, sizeof (addr));
-
-  fd_set wset;
-  FD_ZERO (&wset);
-  FD_SET (sockfd, &wset);
-
-  struct timeval tv;
-  tv.tv_sec = target->timeout_ms / 1000;
-  tv.tv_usec = (target->timeout_ms % 1000) * 1000;
-
-  int sel = select (sockfd + 1, NULL, &wset, NULL, &tv);
-
-  if (sel <= 0) {
-    close (sockfd);
-    target->is_open = false;
-    return -1;
-  }
-
-  int err = 0;
-  socklen_t len = sizeof (err);
-  getsockopt (sockfd, SOL_SOCKET, SO_ERROR, &err, &len);
-  if (err != 0) {
-    char msg[64];
-    snprintf (msg, sizeof (msg), "Port %d refused: %s", target->port, strerror (err));
-    sslog (true, COL_YLW, "SKIP", msg);
-    close (sockfd);
-    target->is_open = false;
-    return -1;
-  }
-
-  fcntl (sockfd, F_SETFL, flags);
-
-  timeout.tv_sec = target->timeout_ms / 1000;
-  timeout.tv_usec = (target->timeout_ms % 1000) * 1000;
-  setsockopt (sockfd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof (timeout));
-  setsockopt (sockfd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof (timeout));
-
-  target->is_open = true;
-  sslog (true, COL_GRN, "OPEN", "Socket spawned on port %d", target->port);
-  return sockfd;
-}
-
-void usage (void)
-{
-  printf (COL_CYAN "\n Welcome to the CameradarC %s!\n" COL_DEF, PROJECT_VERSION);
-  printf ("\n Usage:\n");
-  printf ("\n       -t --target <IP>\n");
-  printf ("\n       -p --port <PORT>, you can type an any port that needs to scan for RTSP\n");
-  printf ("\n       -b --brute with this you can do bruteforce, reading the logins and passwords text file in brute dir\n");
-  printf ("\n       -V --verbose this is a verbose, adding more logs called 'trash'\n"); /* Trash vs garbage❤❤❤ */
-  printf ("\n       -n --nmap this thing uses nmap for discovery, can takes more time\n");
-  printf ("\n       -v --version this argument just show the build tag and version\n");
-  printf ("\n       --nmap-xml <FILE> this thing uses nmap for discovery, can takes more time + uses an exisiting nmap XML\n");
-  printf ("\n       --nmap-fast Fast nmap mode, scanning only 100 top ports\n");
-  printf ("\n       --export-json <FILE> this thing exports a result into JSON\n");
-  printf ("\n       --include-amb this thing add argument that include a 'open|filtered' port from nmap XML\n");
-  printf ("\n Github: https://github.com/gnom2949/cameradarC\n");
-  printf ("\n Credits: https://github.com/Ullaakut/cameradar\n");
-  printf ("\nThis is a free software under GNU GPLv3, see more: https://www.gnu.org/licenses/gpl-3.0.html\n");
-  exit (1);
-}
 
 int main (int argc, char *argv[])
 {
@@ -181,12 +101,34 @@ int main (int argc, char *argv[])
   char ipStr[INET_ADDRSTRLEN] = {0};
 
   struct in_addr addr = {.s_addr = target.ipAddr};
-  if (inet_ntop(AF_INET, &addr, ipStr, sizeof(ipStr)) == NULL) {
+  if (inet_ntop(AF_INET, &addr, ipStr, sizeof(ipStr)) == null) {
     sslog (false, COL_RED, "FAILURE", "Inet_ntop failed: %s", strerror (errno));
     return 1;
   }
 
-  sslog(false, COL_CYAN, "TARGET", "Scanning %s (0x%08x)", ipStr, target.ipAddr);
+  sslog(false, COL_CYAN, "TARGET", "Scanning %s", ipStr, target.ipAddr);
+
+  Dictionary *logins = null;
+  Dictionary *passwords = null;
+
+  string listpass = "/usr/share/gnom2949/brute/passwords.txt";
+  string listlog = "/usr/share/gnom2949/brute/logins.txt";
+
+  if (check4File (listpass) != 0) listpass = "src/brute/passwords.txt";
+  if (check4File (listlog) != 0) listlog = "src/brute/logins.txt";
+
+  if (bruteF)
+  {
+    passwords = load_passlist (listpass);
+    logins = load_loginlist (listlog);
+
+    if (!logins || !passwords)
+    {
+      sslog (false, COL_RED, "ERROR", "Failed to load dictionaries.");
+      bruteF = 0;
+    }
+    else sslog (true, COL_CYAN, "Using wordlist located at '%s'", listpass);
+  }
 
   if (use_nmap_mode) {
     const char *xml_path = nmap_xml_file;
@@ -259,6 +201,8 @@ int main (int argc, char *argv[])
       threadData->port = nmap_res.ports[i].port;
       threadData->doBrute = bruteF;
       threadData->result_ctx = &result_ctx;
+      threadData->logins = logins;
+      threadData->passwords = passwords;
 
       if (pthread_create(&threads[threadCount], NULL, threadScan, threadData) != 0) {
           cleanbit (threadData);
@@ -295,6 +239,8 @@ int main (int argc, char *argv[])
       threadData->port = (uint16_t)p;
       threadData->doBrute = bruteF;
       threadData->result_ctx = &result_ctx;
+      threadData->logins = logins;
+      threadData->passwords = passwords;
 
       pthread_create (&threads[threadCount], NULL, threadScan, threadData);
       threadCount++;
@@ -326,5 +272,7 @@ int main (int argc, char *argv[])
     }
 
     result_free(&result_ctx);
+    if (logins) list_free (logins);
+    if (passwords) list_free (passwords);
     return 0;
 }
