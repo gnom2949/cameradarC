@@ -27,7 +27,8 @@ jobs:
             nmap \
             ninja-build \
             pkg-config \
-            cppcheck
+            cppcheck \
+            libgtest-dev
 
       - name: Configure Project
         run: meson setup build --prefix=/usr
