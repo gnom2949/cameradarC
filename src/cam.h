@@ -1,25 +1,15 @@
-/* Cam.h v1
+/* Cam.h
  * The header for cameradar written on C
  * SPDX-License-Identifier: GNU General Public License v3
 */
+
+#ifdef __cplusplus
+#include <atomic>
+using atomic_bool = std::atomic<bool>;
+extern "C" {
+#endif /* __cplusplus */
 #ifndef C_CAM_RADAR_H
 #define C_CAM_RADAR_H
-
-// === Macroses === //
-#ifdef DEBUG
-#define DBG_IP (var) sslog (false,  COL_YLW, "DEBUG", #var " = '%s' (0x%08x)", var, *(uint32_t*)(var))
-#else
-#define DBG_IP (var) ((void)0)
-#endif
-#define COL_RED "\033[31m"
-#define COL_GRN  "\033[32m"
-#define COL_YLW   "\033[33m"
-#define COL_BLU    "\033[34m"
-#define COL_PRPL    "\033[35m"
-#define COL_CYAN     "\033[36m"
-#define COL_DEF       "\033[0m"
-#define COL_BR_RED     "\033[41m"
-// === End === //
 
 // === Includes === //
 #include <stdio.h>
@@ -37,24 +27,59 @@
 #include <pthread.h>
 #include <fcntl.h>
 #include <getopt.h>
+#include <stdint.h>
 #include <string.h>
 #include <curl/curl.h>
 #include <json-c/json.h>
 #include <stdint.h>
 #include <stdatomic.h>
 #include <stdarg.h>
-#include <imm/IntMemoryManager.h>
+#include "../imm/IntMemoryManager.h"
+// === End === //
+
+
+/* === Types === */
+typedef char* string; /* String, always with pointer */
+typedef const char* ustring; /* Unchangeable String, always with pointer */
+typedef uint8_t u8;
+typedef uint16_t u16;
+typedef uint32_t u32;
+typedef uint64_t u64;
+typedef uintptr_t uptr;
+#define Only static
+#define null NULL
+/* === END === */
+
+// === Macroses === //
+#ifdef DEBUG
+#define DBG_IP (var) sslog (false,  COL_YLW, "DEBUG", #var " = '%s' (0x%08x)", var, *(uint32_t*)(var))
+#else
+#define DBG_IP (var) ((void)0)
+#endif
+#define COL_RED "\033[31m"
+#define COL_GRN  "\033[32m"
+#define COL_YLW   "\033[33m"
+#define COL_BLU    "\033[34m"
+#define COL_PRPL    "\033[35m"
+#define COL_CYAN     "\033[36m"
+#define COL_DEF       "\033[0m"
+#define COL_BR_RED     "\033[41m"
 // === End === //
 
 // === Structs and enums === //
 typedef struct {
-  uint16_t  port;
+  u16  port;
   bool      is_open;
   bool      is_camera; // if RTSP detected
   bool      needs_auth; // if cam responded by xml or http within 401 or Unauthorized
   char      service[64]; // RTSP OPEN, RTSP AUTH, etc.
   char      path[128]; // path for RTSP
 } ScanResult;
+
+typedef struct {
+  char **lines;
+  int count;
+} Dictionary;
 
 typedef struct {
   ScanResult *results;
@@ -64,15 +89,17 @@ typedef struct {
 } ResultCtx;
 
 typedef struct {
-  uint32_t   ipAddr;
-  uint16_t   port;
+  u32        ipAddr;
+  u16        port;
   bool       is_open;
   double     resT;
   int        timeout_ms;
   char       service[32];
   bool       doBrute;
   bool       doVuln;
-  ResultCtx *result_ctx;
+  ResultCtx  *result_ctx;
+  Dictionary *logins;
+  Dictionary *passwords;
 } radarType;
 
 typedef struct {
@@ -107,31 +134,32 @@ typedef enum {
 } PState;
 
 typedef struct {
-  uint16_t port;
+  u16 port;
   PState   state;
   char     service[64];
   char     version[128];
 } PInfo;
 
 typedef struct {
-  uint32_t ipAddr;
+  u32 ipAddr;
   char     ipStr[INET_ADDRSTRLEN];
   PInfo    *ports;
   int      count;
   int      cap;
 } NmRes;
-
 // === End === //
 
 // === internal pointer variabel === //
-extern aConf globA;
 int spawnSock (radarType* target);
 bool portCheck (radarType* target);
-char* ipToString (radarType* target);
+string ipToString (radarType* target);
 void* scanim (void* arg);
+Dictionary *load_passlist (ustring path);
+Dictionary *load_loginlist (ustring path);
+void list_free (Dictionary *dict);
 bool check4Cam (int sockfd, radarType* target, ScanResult *out_result);
 bool loadCensysKey (radarType* target);
-bool bruteforce (radarType* target);
+bool bruteforce (radarType* target, Dictionary *logins, Dictionary *passwords);
 void parseJson (const char *jString);
 void bsfEncode (const char* input, char* output);
 void sslog (bool verbose_only, const char* color, const char* label, const char* msg, ...);
@@ -147,21 +175,23 @@ void nmap_parser_add (NmRes *res, uint16_t port, PState state, const char *servi
 void nmap_parser_init (NmRes *res);
 bool ran_nmap (const char *target_ip, const char *port_range, const char *xml_output, bool fast_mode);
 void nmap_parser_free (NmRes *res);
+void usage (void);
 int check4File (const char *path);
 bool check4Right (bool use_syn_scan);
 bool restart_with_sudo(int argc, char *argv[]);
-char* input_prompt (const char *prompt,
-                    aConf      *cfg,
-                    char       *buf,
-                    size_t      bufsize);
-
-
+string input_prompt (const char *prompt, aConf *cfg, char *buf, size_t bufsize);
+extern aConf globA;
 extern const char* const rtspPath[];
 extern const size_t rtspPcount;
 extern bool crc_verbose_mode;
 extern const char *crc_export_json;
 extern bool ambiguous_include;
 extern bool crc_nmap_connect;
+extern pthread_mutex_t log_mutex;
 // === END === //
 
-#endif // deepseek says: "it needed"
+#endif /* C_CAM_RADAR_H */
+
+#ifdef __cplusplus
+}
+#endif /* __cplusplus */
