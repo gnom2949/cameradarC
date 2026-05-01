@@ -13,10 +13,11 @@
 #include <stddef.h>
 #include <stdarg.h>
 #include <stdint.h>
+#include <pthread.h>
 
-#define BLOCK_SIZE sizeof (IntMemoryRange)
+#define BLOCK_SIZE sizeof (IntMemoryRange) // Size of the metadata block for each memory allocation
 #define ALIGNMENT 16 // Align by 16 bytes for better performance
-#define IMM_HEX 0x494D4D52
+#define IMM_HEX 0x494D4D52 // 'IIMR' in hex, used as a tag to identify valid memory blocks
 
 typedef struct int_memory_range {
     uint32_t hex; // compare a word in hex (IMM_HEX equals IIMR), some 'Tag'
@@ -27,8 +28,19 @@ typedef struct int_memory_range {
     void* ptr; // Pointer to the actual memory block allocated for user data
 } IntMemoryRange;
 
+typedef struct {
+    IntMemoryRange *base; // Pointer to the first memory block in the pool
+    pthread_mutex_t lock; // Mutex for thread safety
+    size_t total_size; // Total size of the memory pool
+} IntMemoryPool;
+
 void *MemoryAllocate (size_t size);
+void *MemoryAllocateAndFillZero (size_t nmemb, size_t size);
 void cleanbit (void *ptr);
 void *MemoryReAllocate (void *ptr, size_t size);
-
+void MemoryRequire (size_t bytes);
+void MemoryRequireKB (size_t kilobytes);
+IntMemoryPool *MemoryPoolCreate (size_t initial_size);
+void MemoryPoolCorrupt (IntMemoryPool *pool);
+void MemoryPoolAdd (IntMemoryPool *pool, size_t size);
 #endif
