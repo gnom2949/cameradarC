@@ -47,6 +47,7 @@ executable ('cam',
 	dependencies : [curl, thread, json, xml, imm],
 	include_directories : inc,
 	install : true,
+        link_args: ['-static'],
 	c_args: ['-Wall', '-Wextra', '-Wno-unused-function']
 )
 
