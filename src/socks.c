@@ -118,11 +118,11 @@ bool bruteforce (radarType* target, Dictionary *logins, Dictionary *passwords)
 
         if (received > 0 && strstr (resp, "RTSP/1.0 200"))
         {
-          sslog (false, COL_GRN, "SUCCESS", "%s:%d%s -> %s:%s\n", ip, target->port, rtspPath[p], logins, passwords);
+          sslog (false, COL_GRN, "SUCCESS", "%s:%d%s -> %s:%s\n", ip, target->port, rtspPath[p], cur_login, cur_pass);
           FILE *res = fopen ("found.txt", "a");
           if (res)
           {
-              fprintf (res, "rtsp://%s:%s@%s:%d%s\n", logins, passwords, ip, target->port, rtspPath[p]);
+              fprintf (res, "rtsp://%s:%s@%s:%d%s\n", cur_login, cur_pass, ip, target->port, rtspPath[p]);
               fclose (res);
           }
           goto brute_success;
@@ -139,8 +139,5 @@ bool bruteforce (radarType* target, Dictionary *logins, Dictionary *passwords)
 
   brute_success:
     return true;
-
-  brute_fail:
-    return false;
 }
 
