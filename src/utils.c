@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: GNU General Public License v3
  */
 #include "cam.h"
-
+#include "version.h"
+#include "config.h"
 aConf           globA = {.msg = "Initializing...", .active = true, .pause = false};
 pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
 bool            crc_verbose_mode = false;
@@ -24,6 +25,11 @@ void result_init (ResultCtx *ctx, int cap)
 
 void result_add (ResultCtx  *ctx, ScanResult *res)
 {
+  if (!ctx || !ctx->results)
+  {
+    fprintf (stderr, "\033[41;1mCRITICAL\033[0m: ctx or results is NULL!!!!");
+    return;
+  }
   pthread_mutex_lock (&ctx->mutex);
   if (ctx->count < ctx->cap) {
     ctx->results[ctx->count++] = *res;
@@ -183,126 +189,6 @@ bool export_result_json (ResultCtx  *ctx,
   return true;
 }
 
-bool bruteforce (radarType* target)
-{
-  pthread_t anim_tid;
-  atomic_store (&globA.active, true);
-
-  FILE *fLog = fopen ("brute/logins.txt", "r");
-  if (!fLog) {
-    sslog (false, COL_RED, "ERROR", "Cannot open brute/logins.txt");
-    return false;
-  }
-
-  FILE *fPass = fopen ("brute/passwords.txt", "r");
-  if (!fPass) {
-    sslog (false, COL_RED, "ERROR", "Cannot open brute/passwords.txt");
-    fclose (fLog);
-    return false;
-  }
-
-  pthread_create (&anim_tid, NULL, scanim, &globA);
-
-  fseek (fLog, 0, SEEK_END);
-  long log_s = ftell(fLog);
-  rewind (fLog);
-
-  fseek (fPass, 0, SEEK_END);
-  long pass_s = ftell(fPass);
-  rewind (fPass);
-
-  if (log_s == 0) {
-    sslog (false, COL_RED, "ERROR", "brute/logins.txt is empty!");
-    goto brute_fail;
-  }
-
-  if (pass_s == 0) {
-    sslog (false, COL_RED, "ERROR", "brute/passwords.txt is empty!");
-    goto brute_fail;
-  }
-
-  sslog (true, COL_CYAN, "INFO", "Loaded %ld bytes from logins.txt, %ld bytes from passwords.");
-
-  char login[128], pass[128];
-  char rawAu[256], bsfAu[512];
-  char req[1024], resp[1024];
-
-  struct in_addr addr = {.s_addr = target->ipAddr};
-  char ip[INET_ADDRSTRLEN];
-  inet_ntop (AF_INET, &addr, ip, sizeof (ip));
-
-  int attemp = 0;
-
-  for (int p = 0; p < 5; p++) {
-    rewind (fLog);
-    while (fgets (login, sizeof (login), fLog)) {
-      login[strcspn (login, "\r\n")] = 0;
-      if (strlen (login) == 0) continue;
-
-      rewind (fPass);
-      while (fgets (pass, sizeof (pass), fPass)) {
-        pass[strcspn (pass, "\r\n")] = 0;
-        if (strlen (pass) == 0) continue;
-
-        attemp++;
-
-        int fd = spawnSock (target);
-        if (fd < 0) {
-          usleep (500000);
-          continue;
-        }
-        // prepare a header in base64
-        snprintf (rawAu, sizeof (rawAu), "%s:%s", login, pass);
-        bsfEncode (rawAu, bsfAu);
-
-        // describe
-        snprintf (req, sizeof (req),
-                  "DESCRIBE rtsp://%s:%d%s RTSP/1.0\r\n"
-                  "CSeq: 1\r\n"
-                  "Authorization: Basic %s\r\n"
-                  "User-Agent: SatWatcher/1.0\r\n\r\n",
-                  ip, target->port, rtspPath[p], bsfAu);
-        sslog (true, COL_BLU, "BRUTE", "Trying %s:%s on %s", login, pass, rtspPath[p]);
-
-        send (fd, req, strnlen (req, sizeof req), 0);
-
-        memset (resp, 0, sizeof (resp));
-        int received = recv (fd, resp, sizeof(resp) - 1, 0);
-        close (fd);
-
-        if (received > 0 && strstr (resp, "RTSP/1.0 200")) {
-          sslog (false, COL_GRN, "SUCCESS", "%s:%d%s -> %s:%s\n", ip, target->port, rtspPath[p], login, pass);
-          FILE *res = fopen ("found.txt", "a");
-          if (res) {
-            fprintf (res, "rtsp://%s:%s@%s:%d%s\n", login, pass, ip, target->port, rtspPath[p]);
-            fclose (res);
-          }
-          goto brute_success;
-        }
-        snprintf (globA.msg, 256, COL_BLU "\r[INFO] Brute Attemp #%d | %s:%s on %s, please wait." COL_DEF, attemp, login, pass, rtspPath[p]);
-        fflush (stdout);
-
-        usleep (100000);
-      }
-    }
-  }
-  sslog (false, COL_YLW, "INFO", "Bruteforce completed: %d attempts, no valid credentials found", attemp);
-
-  brute_success:
-    atomic_store (&globA.active, false);
-    pthread_join (anim_tid, NULL);
-    fclose (fLog);
-    fclose (fPass);
-    return true;
-
-  brute_fail:
-    atomic_store (&globA.active, false);
-    pthread_join (anim_tid, NULL);
-    if (fLog) fclose (fLog);
-    if (fPass) fclose (fPass);
-    return false;
-}
-
 bool check4Cam (int         sockfd,
                 radarType  *target,
                 ScanResult *out_result)
@@ -378,46 +264,13 @@ void* scanim (void* arg)
       continue;
     }
 
+    pthread_mutex_lock (&log_mutex);
     printf ("\r\33[2K" COL_PRPL "[%s] %s" COL_DEF, frames[i++ % 10], cfg->msg);
     fflush (stdout);
+    pthread_mutex_unlock (&log_mutex);
     usleep (80000);
   }
   return NULL;
-}
-
-void* threadScan(void* arg) /* fuck threads */
-{
-    if (!arg) return NULL;
-
-    radarType* data = (radarType*)arg;
-
-    ScanResult res = {0};
-    res.port = data->port;
-
-    int fd = spawnSock(data);
-    if (fd < 0) {
-      res.is_open = false;
-      if (data->result_ctx) result_add (data->result_ctx, &res);
-      //cleanbit (data); trash, it calls a fuckin double-free
-      return NULL;
-    }
-
-    res.is_open = true;
-
-    if (check4Cam (fd, data, &res)) {
-        // i doesn't write a log because it already written in check4Cam
-      if (data->doBrute && res.needs_auth) {
-        bruteforce (data);
-      }
-    }
-
-    if (data->result_ctx) {
-      result_add (data->result_ctx, &res);
-    }
-
-    close (fd);
-    cleanbit (data);
-    return NULL;
 }
 
 int check4File (const char *path)
@@ -440,62 +293,6 @@ int check4File (const char *path)
 
   sslog (true, COL_GRN, "SYSTEM", "Valid File Found: %s", path);
   return 0;
-}
-
-bool ran_nmap (const char *target_ip, const char *port_range, const char *xml_output, bool fast_mode)
-{
-  sslog (true, COL_YLW, "DEBUG", "ran_nmap called: ");
-  sslog (true, COL_YLW, "DEBUG", " target_ip = '%s', len=%zu, ptr=%p", target_ip ? target_ip : "null", target_ip ? strlen (target_ip) : 0, (void*)target_ip);
-  if (!target_ip || !xml_output) {
-    sslog (false, COL_RED, "ERROR", "Invalid arguments for nmap scan.");
-    return false;
-  }
-
-  if (strlen (target_ip) == 0) {
-    sslog (false, COL_RED, "ERROR", "target ip is NULL or Empty");
-    return false;
-  }
-
-  if (check4File ("/usr/bin/nmap") != 0) {
-    sslog (false, COL_RED, "ERROR", "Nmap not found in PATH. Did you install the dependencies?");
-    return false;
-  }
-
-  const char *scan_type = crc_nmap_connect ? "-sT" : "-sS";
-  const char *timing = crc_nmap_connect ? "T2" : "T3";
-
-  char cmd[1024];
-
-  if (fast_mode) {
-    snprintf (cmd, sizeof (cmd),
-              "nmap %s -%s --top-ports 100 -oX %s %s 2>/dev/null", scan_type, timing, xml_output, target_ip);
-  } else if (port_range && strlen (port_range) > 0) {
-    snprintf (cmd, sizeof (cmd),
-              "nmap %s -sV -%s -p %s -oX %s %s 2>/dev/null", scan_type,  timing, port_range, xml_output, target_ip);
-  } else {
-    snprintf(cmd, sizeof(cmd),
-                 "nmap %s -sV -%s -oX %s %s 2>/dev/null", scan_type, timing, xml_output, target_ip);
-  }
-
-  sslog (true, COL_BLU, "NMAP", "Running: %s, UID:%d", cmd, getuid());
-
-  int ran = system (cmd);
-
-  if (ran != 0) {
-    sslog (false, COL_RED, "ERROR", "nmap failed with code %d", WEXITSTATUS (ran));
-    return false;
-  }
-
-  if (check4File (xml_output) != 0) {
-    sslog (false, COL_RED, "FAILURE", "Nmap XML not created: %s", xml_output);
-    return false;
-  } else if (check4File (xml_output) == 2) {
-    sslog (false, COL_RED, "FAILURE", "Nmap XML empty or invalid: %s", xml_output);
-    return false;
-  }
-
-  sslog (true, COL_GRN, "SYSTEM", "Scan completed, XML to %s", xml_output);
-  return true;
 }
 
 bool check4Right (bool use_syn_scan)
@@ -554,4 +351,24 @@ char* input_prompt (const char *prompt,
     fflush(stdout);
 
     return result;
+}
+
+void usage (void)
+{
+  printf (COL_CYAN "\n Welcome to the CameradarC %s!\n" COL_DEF, PROJECT_VERSION);
+  printf ("\n Usage:\n");
+  printf ("\n       -t --target <IP>\n");
+  printf ("\n       -p --port <PORT>, you can type an any port that needs to scan for RTSP\n");
+  printf ("\n       -b --brute with this you can do bruteforce, reading the logins and passwords text file in brute dir\n");
+  printf ("\n       -V --verbose this is a verbose, adding more logs called 'trash'\n"); /* Trash vs garbage❤❤❤ */
+  printf ("\n       -n --nmap this thing uses nmap for discovery, can takes more time\n");
+  printf ("\n       -v --version this argument just show the build tag and version\n");
+  printf ("\n       --nmap-xml <FILE> this thing uses nmap for discovery, can takes more time + uses an exisiting nmap XML\n");
+  printf ("\n       --nmap-fast Fast nmap mode, scanning only 100 top ports\n");
+  printf ("\n       --export-json <FILE> this thing exports a result into JSON\n");
+  printf ("\n       --include-amb this thing add argument that include a 'open|filtered' port from nmap XML\n");
+  printf ("\n Github: https://github.com/gnom2949/cameradarC\n");
+  printf ("\n Credits: https://github.com/Ullaakut/cameradar\n");
+  printf ("\nThis is a free software under GNU GPLv3, see more: https://www.gnu.org/licenses/gpl-3.0.html\n");
+  exit (1);
 }
